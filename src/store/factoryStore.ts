@@ -309,6 +309,10 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
     const toPart = get().parts.find((p) => p.id === partId);
     if (!fromPart || !toPart) return;
 
+    const fromPort = fromPart.ports.find((p) => p.id === mode.fromPortId);
+    const toPort = toPart.ports.find((p) => p.id === portId);
+    if (!fromPort || !toPort) return;
+
     let ratio = 1;
     let connType: Connection["type"] = "hinge";
 
@@ -317,10 +321,18 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
       const toTeeth = (toPart.config as { teeth: number }).teeth;
       ratio = -fromTeeth / toTeeth;
       connType = "mesh";
-    } else if (fromPart.type === "motor") {
-      connType = "hinge";
+    } else if (
+      fromPart.type === "connectingRod" ||
+      toPart.type === "connectingRod"
+    ) {
+      connType = "rod";
+      ratio = 1;
     } else if (fromPart.type === "conveyorBelt" || toPart.type === "conveyorBelt") {
       connType = "belt";
+      ratio = 1;
+    } else {
+      connType = "hinge";
+      ratio = 1;
     }
 
     const newConnection: Connection = {
@@ -336,6 +348,27 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
     };
 
     set((state) => {
+      let alignedToPart = { ...toPart };
+      if (connType === "rod" || connType === "hinge") {
+        const fp = fromPort.localPosition;
+        const tp = toPort.localPosition;
+        const newX =
+          fromPart.position.x +
+          fp.x * Math.abs(Math.cos(fromPart.rotation.y || 0)) -
+          tp.x;
+        const newY = fromPart.position.y + fp.y - tp.y;
+        const newZ = fromPart.position.z + fp.z - tp.z;
+
+        alignedToPart = {
+          ...alignedToPart,
+          position: {
+            x: get().gridSnapping ? snapToGrid(newX, get().gridSize) : newX,
+            y: get().gridSnapping ? snapToGrid(newY, get().gridSize) : newY,
+            z: get().gridSnapping ? snapToGrid(newZ, get().gridSize) : newZ,
+          },
+        };
+      }
+
       const updatedParts = state.parts.map((p) => {
         if (p.id === mode.fromPartId) {
           return {
@@ -347,8 +380,8 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
         }
         if (p.id === partId) {
           return {
-            ...p,
-            ports: p.ports.map((pt) =>
+            ...alignedToPart,
+            ports: alignedToPart.ports.map((pt) =>
               pt.id === portId ? { ...pt, connectedTo: mode.fromPartId! } : pt
             ),
           };
@@ -413,9 +446,24 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
   },
 
   stopSimulation: () => {
-    set((state) => ({
-      simulation: { ...state.simulation, running: false },
-    }));
+    set((state) => {
+      const resetParts = state.parts.map((p) => ({
+        ...p,
+        physics: {
+          ...p.physics,
+          angularVelocity: 0,
+          linearVelocity: { x: 0, y: 0, z: 0 },
+          torque: 0,
+          load: 0,
+          temperature: 25,
+          efficiency: 1,
+        },
+      }));
+      return {
+        simulation: { ...state.simulation, running: false },
+        parts: resetParts,
+      };
+    });
   },
 
   setTimeScale: (scale) => {

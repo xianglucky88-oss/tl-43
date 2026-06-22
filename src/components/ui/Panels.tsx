@@ -46,6 +46,10 @@ export const Toolbar: React.FC = () => {
   return (
     <div className="absolute top-4 left-4 right-4 flex items-center gap-2 pointer-events-none">
       <div className="flex items-center gap-1 bg-slate-900/90 backdrop-blur-md rounded-xl p-2 border border-slate-700 shadow-2xl pointer-events-auto">
+        <div className="px-3 py-1.5 text-sm font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-indigo-300 to-purple-300 tracking-wide mr-1">
+          ⚙️ 3D DIY
+        </div>
+        <div className="w-px h-12 bg-slate-700 mx-1" />
         <div className="px-3 py-1.5 text-sm font-bold text-slate-200 border-r border-slate-700 mr-1">
           🔧 零件库
         </div>
@@ -208,7 +212,7 @@ export const PropertyPanel: React.FC = () => {
                 <input
                   type="number"
                   step="0.1"
-                  value={selectedPart.position[axis].toFixed(2)}
+                  value={selectedPart.position[axis].toFixed(3)}
                   onChange={(e) =>
                     updatePartPosition(selectedPart.id, {
                       ...selectedPart.position,
@@ -231,7 +235,7 @@ export const PropertyPanel: React.FC = () => {
                 <input
                   type="number"
                   step="5"
-                  value={((selectedPart.rotation[axis] * 180) / Math.PI).toFixed(0)}
+                  value={((selectedPart.rotation[axis] * 180) / Math.PI).toFixed(3)}
                   onChange={(e) =>
                     updatePartRotation(selectedPart.id, {
                       ...selectedPart.rotation,
@@ -354,12 +358,12 @@ export const PropertyPanel: React.FC = () => {
             <div className="flex justify-between">
               <span className="text-slate-400">转速:</span>
               <span className="text-cyan-400 font-mono">
-                {((selectedPart.physics.angularVelocity * 60) / (Math.PI * 2)).toFixed(1)} RPM
+                {((selectedPart.physics.angularVelocity * 60) / (Math.PI * 2)).toFixed(3)} RPM
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-400">扭矩:</span>
-              <span className="text-amber-400 font-mono">{selectedPart.physics.torque.toFixed(2)} N·m</span>
+              <span className="text-amber-400 font-mono">{selectedPart.physics.torque.toFixed(3)} N·m</span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-400">温度:</span>
@@ -373,13 +377,13 @@ export const PropertyPanel: React.FC = () => {
                       : "text-emerald-400"
                 )}
               >
-                {selectedPart.physics.temperature.toFixed(1)}°C
+                {selectedPart.physics.temperature.toFixed(3)}°C
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-400">效率:</span>
               <span className="text-violet-400 font-mono">
-                {(selectedPart.physics.efficiency * 100).toFixed(0)}%
+                {(selectedPart.physics.efficiency * 100).toFixed(3)}%
               </span>
             </div>
           </div>
@@ -397,21 +401,30 @@ export const PropertyPanel: React.FC = () => {
 export const StatusMonitor: React.FC = () => {
   const { simulation, parts, clearWarnings, connections } = useFactoryStore();
 
+  const safeNum = (n: number, fallback = 0) =>
+    isFinite(n) && !isNaN(n) ? n : fallback;
+
   const avgRPM =
     parts.length > 0
-      ? parts.reduce(
-          (sum, p) =>
-            sum + Math.abs((p.physics.angularVelocity * 60) / (Math.PI * 2)),
-          0
-        ) / parts.length
+      ? safeNum(
+          parts.reduce(
+            (sum, p) =>
+              sum +
+              Math.abs(safeNum(p.physics.angularVelocity) * 60) / (Math.PI * 2),
+            0
+          ) / parts.length
+        )
       : 0;
 
   const maxTemp =
     parts.length > 0
-      ? Math.max(...parts.map((p) => p.physics.temperature))
+      ? safeNum(Math.max(...parts.map((p) => safeNum(p.physics.temperature, 25))))
       : 25;
 
   const stalledCount = parts.filter((p) => p.physics.stalled).length;
+
+  const safeSimEnergy = safeNum(simulation.totalEnergy);
+  const safeSimEfficiency = safeNum(simulation.systemEfficiency, 1);
 
   return (
     <div className="absolute bottom-4 left-4 right-4 flex items-start gap-4 pointer-events-none">
@@ -421,7 +434,7 @@ export const StatusMonitor: React.FC = () => {
             系统能量
           </div>
           <div className="text-2xl font-bold text-cyan-400 font-mono mt-1">
-            {simulation.totalEnergy.toFixed(1)}
+            {safeSimEnergy.toFixed(3)}
           </div>
           <div className="text-[10px] text-slate-500">kJ</div>
         </div>
@@ -435,14 +448,14 @@ export const StatusMonitor: React.FC = () => {
           <div
             className={cn(
               "text-2xl font-bold font-mono mt-1",
-              simulation.systemEfficiency > 0.8
+              safeSimEfficiency > 0.8
                 ? "text-emerald-400"
-                : simulation.systemEfficiency > 0.5
+                : safeSimEfficiency > 0.5
                   ? "text-amber-400"
                   : "text-red-400"
             )}
           >
-            {(simulation.systemEfficiency * 100).toFixed(0)}%
+            {(safeSimEfficiency * 100).toFixed(3)}%
           </div>
           <div
             className="w-20 h-1.5 bg-slate-700 rounded-full mt-1 overflow-hidden mx-auto"
@@ -450,13 +463,13 @@ export const StatusMonitor: React.FC = () => {
             <div
               className={cn(
                 "h-full rounded-full transition-all duration-500",
-                simulation.systemEfficiency > 0.8
+                safeSimEfficiency > 0.8
                   ? "bg-emerald-500"
-                  : simulation.systemEfficiency > 0.5
+                  : safeSimEfficiency > 0.5
                     ? "bg-amber-500"
                     : "bg-red-500"
               )}
-              style={{ width: `${simulation.systemEfficiency * 100}%` }}
+              style={{ width: `${safeSimEfficiency * 100}%` }}
             />
           </div>
         </div>
@@ -468,7 +481,7 @@ export const StatusMonitor: React.FC = () => {
             平均转速
           </div>
           <div className="text-2xl font-bold text-indigo-400 font-mono mt-1">
-            {avgRPM.toFixed(0)}
+            {avgRPM.toFixed(3)}
           </div>
           <div className="text-[10px] text-slate-500">RPM</div>
         </div>
@@ -489,7 +502,7 @@ export const StatusMonitor: React.FC = () => {
                   : "text-emerald-400"
             )}
           >
-            {maxTemp.toFixed(0)}°
+            {maxTemp.toFixed(3)}°
           </div>
           <div className="text-[10px] text-slate-500">Celsius</div>
         </div>

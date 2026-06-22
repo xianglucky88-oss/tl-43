@@ -11,6 +11,7 @@ import {
   FlywheelPart,
   FactoryPart,
 } from "@/types/factory";
+import { useFactoryStore } from "@/store/factoryStore";
 
 interface PartProps {
   part: FactoryPart;
@@ -87,7 +88,8 @@ export const GearMesh: React.FC<PartProps> = ({
   );
 
   useFrame((_, delta) => {
-    if (groupRef.current) {
+    const simRunning = useFactoryStore.getState().simulation.running;
+    if (groupRef.current && simRunning) {
       rotationRef.current += gear.physics.angularVelocity * delta;
       groupRef.current.rotation.x = rotationRef.current;
     }
@@ -155,7 +157,8 @@ export const MotorMesh: React.FC<PartProps> = ({
   const shaftRotation = useRef(0);
 
   useFrame((_, delta) => {
-    if (shaftRef.current) {
+    const simRunning = useFactoryStore.getState().simulation.running;
+    if (shaftRef.current && simRunning) {
       shaftRotation.current += motor.physics.angularVelocity * delta;
       shaftRef.current.rotation.z = shaftRotation.current;
     }
@@ -455,7 +458,10 @@ export const ConveyorBeltMesh: React.FC<PartProps> = ({
   const { length, width } = belt.config;
 
   useFrame((_, delta) => {
-    beltOffsetRef.current += (belt.physics.linearVelocity?.x || 0) * delta * 2;
+    const simRunning = useFactoryStore.getState().simulation.running;
+    if (simRunning) {
+      beltOffsetRef.current += (belt.physics.linearVelocity?.x || 0) * delta * 2;
+    }
   });
 
   return (
@@ -543,7 +549,8 @@ export const BearingMesh: React.FC<PartProps> = ({
   const { radius } = bearing.config;
 
   useFrame((_, delta) => {
-    if (innerRef.current) {
+    const simRunning = useFactoryStore.getState().simulation.running;
+    if (innerRef.current && simRunning) {
       rotationRef.current += bearing.physics.angularVelocity * delta;
       innerRef.current.rotation.z = rotationRef.current;
     }
@@ -639,7 +646,8 @@ export const FlywheelMesh: React.FC<PartProps> = ({
   const thickness = Math.max(0.05 + mass / 200, 0.08);
 
   useFrame((_, delta) => {
-    if (groupRef.current) {
+    const simRunning = useFactoryStore.getState().simulation.running;
+    if (groupRef.current && simRunning) {
       rotationRef.current += flywheel.physics.angularVelocity * delta;
       groupRef.current.rotation.z = rotationRef.current;
     }

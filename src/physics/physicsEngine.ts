@@ -222,11 +222,12 @@ export class PhysicsEngine {
       ratio = isFrom ? conn.ratio : 1 / conn.ratio;
     }
 
-    const outputOmega = inputOmega * ratio;
-    const outputTorque =
-      Math.abs(ratio) > 0 ? inputOmega / Math.abs(ratio) : 0;
+    const safeRatio = Math.max(Math.min(ratio, 100), -100);
+    const outputOmega = inputOmega * safeRatio;
+    const clampedOmega = Math.max(Math.min(outputOmega, 3000), -3000);
+    const outputTorque = 0;
 
-    return { omega: outputOmega, torque: outputTorque, ratio };
+    return { omega: clampedOmega, torque: outputTorque, ratio: safeRatio };
   }
 
   private isStrongerDrive(
@@ -590,6 +591,11 @@ export class PhysicsEngine {
     }
   }
 
+  private clampValue(v: number, min: number, max: number): number {
+    if (!isFinite(v) || isNaN(v)) return (min + max) / 2;
+    return Math.max(min, Math.min(max, v));
+  }
+
   private buildUpdates(
     parts: FactoryPart[],
     nodes: Map<string, GraphNode>
@@ -600,16 +606,26 @@ export class PhysicsEngine {
       const node = nodes.get(part.id);
       if (!node) continue;
 
+      const omega = this.clampValue(node.angularVelocity, -3000, 3000);
+      const torque = this.clampValue(node.torque, -10000, 10000);
+      const temperature = this.clampValue(part.physics.temperature, 20, 500);
+      const efficiency = this.clampValue(part.physics.efficiency, 0, 1);
+      const linVel = node.linearVelocity
+        ? {
+            x: this.clampValue(node.linearVelocity.x, -100, 100),
+            y: this.clampValue(node.linearVelocity.y, -100, 100),
+            z: this.clampValue(node.linearVelocity.z, -100, 100),
+          }
+        : { x: 0, y: 0, z: 0 };
+
       const update: PhysicsStepResult["partUpdates"][number] = {
         partId: part.id,
         physicsUpdates: {
-          angularVelocity: node.angularVelocity,
-          torque: node.torque,
-          linearVelocity: node.linearVelocity
-            ? { ...node.linearVelocity }
-            : { x: 0, y: 0, z: 0 },
-          temperature: part.physics.temperature,
-          efficiency: part.physics.efficiency,
+          angularVelocity: omega,
+          torque,
+          linearVelocity: linVel,
+          temperature,
+          efficiency,
           stalled: part.physics.stalled,
         },
       };
@@ -640,20 +656,25 @@ export class PhysicsEngine {
       if (!node) continue;
 
       const inertia = Math.max(part.physics.inertia, 0.001);
-      kineticEnergy += 0.5 * inertia * node.angularVelocity * node.angularVelocity;
+      const omega = this.clampValue(node.angularVelocity, -3000, 3000);
+      kineticEnergy += 0.5 * inertia * omega * omega;
 
       if (part.type === "motor") {
         const motor = part as MotorPart;
         if (motor.config.running) {
           inputPower += motor.config.power * part.physics.efficiency;
-          outputPower += Math.abs(node.torque * node.angularVelocity);
+          outputPower += Math.abs(
+            this.clampValue(node.torque, -10000, 10000) * omega
+          );
         }
       }
     }
 
-    const systemEfficiency = inputPower > 0 ? outputPower / inputPower : 1.0;
+    const safeKinetic = this.clampValue(kineticEnergy, 0, 10000000);
+    const systemEfficiency =
+      inputPower > 0 ? this.clampValue(outputPower / inputPower, 0, 1) : 1.0;
     return {
-      totalEnergy: kineticEnergy,
+      totalEnergy: safeKinetic,
       systemEfficiency: Math.min(1, Math.max(0, systemEfficiency)),
     };
   }

@@ -62,18 +62,24 @@ function renderPart(
 }
 
 function PhysicsSimulator() {
-  const { parts, connections, simulation, applySimulationStep } =
-    useFactoryStore();
   const lastTickRef = useRef(0);
 
   useFrame((_, delta) => {
-    if (!simulation.running) return;
+    const state = useFactoryStore.getState();
+    const { simulation, parts, connections, applySimulationStep } = state;
+    if (!simulation.running) {
+      lastTickRef.current = 0;
+      return;
+    }
 
     lastTickRef.current += delta;
     const stepSize = 1 / 60;
+    const maxStepsPerFrame = 10;
+    let steps = 0;
 
-    while (lastTickRef.current >= stepSize) {
+    while (lastTickRef.current >= stepSize && steps < maxStepsPerFrame) {
       lastTickRef.current -= stepSize;
+      steps++;
       const result = physicsEngine.step(
         parts,
         connections,
@@ -294,14 +300,6 @@ export default function Workshop() {
       <PropertyPanel />
       <HelpPanel />
       <StatusMonitor />
-
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 pointer-events-none">
-        <div className="bg-gradient-to-r from-indigo-950/80 via-purple-950/80 to-indigo-950/80 backdrop-blur-md px-8 py-2 rounded-2xl border border-indigo-500/30 shadow-2xl shadow-indigo-500/10">
-          <h1 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-indigo-300 to-purple-300 tracking-wide">
-            ⚙️ 3D DIY 机械工厂 · Mechanica Workshop
-          </h1>
-        </div>
-      </div>
     </div>
   );
 }
