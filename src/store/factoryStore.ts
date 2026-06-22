@@ -168,6 +168,127 @@ function snapToGrid(value: number, gridSize: number): number {
   return Math.round(value / gridSize) * gridSize;
 }
 
+function worldPortPosition(
+  part: FactoryPart,
+  localPos: Vec3
+): Vec3 {
+  const rx = part.rotation.x || 0;
+  const ry = part.rotation.y || 0;
+  const rz = part.rotation.z || 0;
+
+  const cosX = Math.cos(rx);
+  const sinX = Math.sin(rx);
+  const cosY = Math.cos(ry);
+  const sinY = Math.sin(ry);
+  const cosZ = Math.cos(rz);
+  const sinZ = Math.sin(rz);
+
+  let x = localPos.x;
+  let y = localPos.y;
+  let z = localPos.z;
+
+  let y1 = y * cosX - z * sinX;
+  let z1 = y * sinX + z * cosX;
+  let x1 = x;
+
+  let x2 = x1 * cosY + z1 * sinY;
+  let z2 = -x1 * sinY + z1 * cosY;
+  let y2 = y1;
+
+  let x3 = x2 * cosZ - y2 * sinZ;
+  let y3 = x2 * sinZ + y2 * cosZ;
+  let z3 = z2;
+
+  return {
+    x: part.position.x + x3,
+    y: part.position.y + y3,
+    z: part.position.z + z3,
+  };
+}
+
+function computeAlignment(
+  targetPart: FactoryPart,
+  targetPortLocal: Vec3,
+  fromWorld: Vec3,
+  existingOtherPortWorld?: Vec3
+): { position: Vec3; rotation: Vec3 } {
+  const isTwoEnded =
+    targetPart.type === "connectingRod" || targetPart.type === "conveyorBelt";
+
+  if (!isTwoEnded || !existingOtherPortWorld) {
+    const dx = targetPortLocal.x;
+    const dy = targetPortLocal.y;
+    const dz = targetPortLocal.z;
+    return {
+      position: {
+        x: fromWorld.x - dx,
+        y: fromWorld.y - dy,
+        z: fromWorld.z - dz,
+      },
+      rotation: targetPart.rotation,
+    };
+  }
+
+  const dirX = existingOtherPortWorld.x - fromWorld.x;
+  const dirY = existingOtherPortWorld.y - fromWorld.y;
+  const dirZ = existingOtherPortWorld.z - fromWorld.z;
+  const len = Math.sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
+
+  if (len < 0.001) {
+    return { position: targetPart.position, rotation: targetPart.rotation };
+  }
+
+  const nx = dirX / len;
+  const ny = dirY / len;
+  const nz = dirZ / len;
+
+  const ry = -Math.atan2(nz, nx);
+  const horiz = Math.sqrt(nx * nx + nz * nz);
+  const rx = Math.atan2(ny, horiz);
+  const rz = 0;
+
+  const midX = (fromWorld.x + existingOtherPortWorld.x) / 2;
+  const midY = (fromWorld.y + existingOtherPortWorld.y) / 2;
+  const midZ = (fromWorld.z + existingOtherPortWorld.z) / 2;
+
+  const ports = targetPart.ports;
+  const portPositions = ports.map((p) => p.localPosition);
+  const centerX =
+    portPositions.reduce((s, p) => s + p.x, 0) / portPositions.length;
+  const centerY =
+    portPositions.reduce((s, p) => s + p.y, 0) / portPositions.length;
+  const centerZ =
+    portPositions.reduce((s, p) => s + p.z, 0) / portPositions.length;
+
+  const cosX = Math.cos(rx);
+  const sinX = Math.sin(rx);
+  const cosY = Math.cos(ry);
+  const sinY = Math.sin(ry);
+  const cosZ = Math.cos(rz);
+  const sinZ = Math.sin(rz);
+
+  let cy1 = centerY * cosX - centerZ * sinX;
+  let cz1 = centerY * sinX + centerZ * cosX;
+  let cx1 = centerX;
+
+  let cx2 = cx1 * cosY + cz1 * sinY;
+  let cz2 = -cx1 * sinY + cz1 * cosY;
+  let cy2 = cy1;
+
+  let cx3 = cx2 * cosZ - cy2 * sinZ;
+  let cy3 = cx2 * sinZ + cy2 * cosZ;
+  let cz3 = cz2;
+
+  return {
+    position: {
+      x: midX - cx3,
+      y: midY - cy3,
+      z: midZ - cz3,
+    },
+    rotation: { x: rx, y: ry, z: rz },
+  };
+}
+
 export const useFactoryStore = create<FactoryState>((set, get) => ({
   parts: [],
   connections: [],
@@ -305,8 +426,10 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
       return;
     }
 
-    const fromPart = get().parts.find((p) => p.id === mode.fromPartId);
-    const toPart = get().parts.find((p) => p.id === partId);
+    const allParts = get().parts;
+    const allConns = get().connections;
+    const fromPart = allParts.find((p) => p.id === mode.fromPartId);
+    const toPart = allParts.find((p) => p.id === partId);
     if (!fromPart || !toPart) return;
 
     const fromPort = fromPart.ports.find((p) => p.id === mode.fromPortId);
@@ -327,7 +450,10 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
     ) {
       connType = "rod";
       ratio = 1;
-    } else if (fromPart.type === "conveyorBelt" || toPart.type === "conveyorBelt") {
+    } else if (
+      fromPart.type === "conveyorBelt" ||
+      toPart.type === "conveyorBelt"
+    ) {
       connType = "belt";
       ratio = 1;
     } else {
@@ -348,23 +474,147 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
     };
 
     set((state) => {
-      let alignedToPart = { ...toPart };
-      if (connType === "rod" || connType === "hinge") {
-        const fp = fromPort.localPosition;
-        const tp = toPort.localPosition;
-        const newX =
-          fromPart.position.x +
-          fp.x * Math.abs(Math.cos(fromPart.rotation.y || 0)) -
-          tp.x;
-        const newY = fromPart.position.y + fp.y - tp.y;
-        const newZ = fromPart.position.z + fp.z - tp.z;
+      const snapping = get().gridSnapping;
+      const gs = get().gridSize;
+      const snap = (v: number) => (snapping ? snapToGrid(v, gs) : v);
 
+      const fromWorld = worldPortPosition(fromPart, fromPort.localPosition);
+
+      let alignedToPart = { ...toPart };
+      let alignedFromPart = { ...fromPart };
+
+      const twoEndedTypes: PartType[] = ["connectingRod", "conveyorBelt"];
+
+      if (twoEndedTypes.includes(toPart.type)) {
+        const otherConns = allConns.filter(
+          (c) =>
+            (c.fromPartId === toPart.id || c.toPartId === toPart.id) &&
+            c.fromPortId !== portId &&
+            c.toPortId !== portId
+        );
+
+        if (otherConns.length > 0) {
+          const otherConn = otherConns[0];
+          const otherPartId =
+            otherConn.fromPartId === toPart.id
+              ? otherConn.toPartId
+              : otherConn.fromPartId;
+          const otherPortId =
+            otherConn.fromPartId === toPart.id
+              ? otherConn.toPortId
+              : otherConn.fromPortId;
+          const otherPart = allParts.find((p) => p.id === otherPartId);
+          if (otherPart) {
+            const otherPort = otherPart.ports.find(
+              (p) => p.id === otherPortId
+            );
+            if (otherPort) {
+              const otherWorld = worldPortPosition(
+                otherPart,
+                otherPort.localPosition
+              );
+              const align = computeAlignment(
+                toPart,
+                toPort.localPosition,
+                fromWorld,
+                otherWorld
+              );
+              alignedToPart = {
+                ...alignedToPart,
+                position: {
+                  x: snap(align.position.x),
+                  y: snap(align.position.y),
+                  z: snap(align.position.z),
+                },
+                rotation: align.rotation,
+              };
+            }
+          }
+        } else {
+          const align = computeAlignment(
+            toPart,
+            toPort.localPosition,
+            fromWorld
+          );
+          alignedToPart = {
+            ...alignedToPart,
+            position: {
+              x: snap(align.position.x),
+              y: snap(align.position.y),
+              z: snap(align.position.z),
+            },
+          };
+        }
+      } else if (twoEndedTypes.includes(fromPart.type)) {
+        const otherConns = allConns.filter(
+          (c) =>
+            (c.fromPartId === fromPart.id || c.toPartId === fromPart.id) &&
+            c.fromPortId !== mode.fromPortId &&
+            c.toPortId !== mode.fromPortId
+        );
+
+        if (otherConns.length > 0) {
+          const otherConn = otherConns[0];
+          const otherPartId =
+            otherConn.fromPartId === fromPart.id
+              ? otherConn.toPartId
+              : otherConn.fromPartId;
+          const otherPortId =
+            otherConn.fromPartId === fromPart.id
+              ? otherConn.toPortId
+              : otherConn.fromPortId;
+          const otherPart = allParts.find((p) => p.id === otherPartId);
+          if (otherPart) {
+            const otherPort = otherPart.ports.find(
+              (p) => p.id === otherPortId
+            );
+            if (otherPort) {
+              const toWorld = worldPortPosition(toPart, toPort.localPosition);
+              const otherWorld = worldPortPosition(
+                otherPart,
+                otherPort.localPosition
+              );
+              const align = computeAlignment(
+                fromPart,
+                fromPort.localPosition,
+                toWorld,
+                otherWorld
+              );
+              alignedFromPart = {
+                ...alignedFromPart,
+                position: {
+                  x: snap(align.position.x),
+                  y: snap(align.position.y),
+                  z: snap(align.position.z),
+                },
+                rotation: align.rotation,
+              };
+            }
+          }
+        } else {
+          const toWorld = worldPortPosition(toPart, toPort.localPosition);
+          const align = computeAlignment(
+            fromPart,
+            fromPort.localPosition,
+            toWorld
+          );
+          alignedFromPart = {
+            ...alignedFromPart,
+            position: {
+              x: snap(align.position.x),
+              y: snap(align.position.y),
+              z: snap(align.position.z),
+            },
+          };
+        }
+      } else {
+        const align = computeAlignment(toPart, toPort.localPosition, fromWorld);
         alignedToPart = {
           ...alignedToPart,
           position: {
-            x: get().gridSnapping ? snapToGrid(newX, get().gridSize) : newX,
-            y: get().gridSnapping ? snapToGrid(newY, get().gridSize) : newY,
-            z: get().gridSnapping ? snapToGrid(newZ, get().gridSize) : newZ,
+            x: snap(align.position.x),
+            y: snap(align.position.y),
+            z: snap(align.position.z),
           },
         };
       }
@@ -372,8 +622,8 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
       const updatedParts = state.parts.map((p) => {
         if (p.id === mode.fromPartId) {
           return {
-            ...p,
-            ports: p.ports.map((pt) =>
+            ...alignedFromPart,
+            ports: alignedFromPart.ports.map((pt) =>
               pt.id === mode.fromPortId ? { ...pt, connectedTo: partId } : pt
             ),
           };
@@ -533,8 +783,46 @@ export const useFactoryStore = create<FactoryState>((set, get) => ({
   },
 
   loadPreset: (parts, connections) => {
+    const twoEndedTypes: PartType[] = ["connectingRod", "conveyorBelt"];
+    const alignedParts = parts.map((p) => {
+      if (!twoEndedTypes.includes(p.type)) return p;
+      if (p.ports.length < 2) return p;
+
+      const pConns = connections.filter(
+        (c) => c.fromPartId === p.id || c.toPartId === p.id
+      );
+      if (pConns.length < 2) return p;
+
+      const getEndpoint = (conn: Connection): Vec3 | null => {
+        const otherId = conn.fromPartId === p.id ? conn.toPortId : conn.fromPortId;
+        const otherPartId =
+          conn.fromPartId === p.id ? conn.toPartId : conn.fromPartId;
+        const otherPart = parts.find((pp) => pp.id === otherPartId);
+        if (!otherPart) return null;
+        const otherPort = otherPart.ports.find((pp) => pp.id === otherId);
+        if (!otherPort) return null;
+        return worldPortPosition(otherPart, otherPort.localPosition);
+      };
+
+      const ep0 = getEndpoint(pConns[0]);
+      const ep1 = getEndpoint(pConns[1]);
+      if (!ep0 || !ep1) return p;
+
+      const targetPort = p.ports.find(
+        (pt) => pt.id === (pConns[0].fromPartId === p.id ? pConns[0].fromPortId : pConns[0].toPortId)
+      );
+      if (!targetPort) return p;
+
+      const align = computeAlignment(p, targetPort.localPosition, ep0, ep1);
+      return {
+        ...p,
+        position: align.position,
+        rotation: align.rotation,
+      };
+    });
+
     set({
-      parts,
+      parts: alignedParts,
       connections,
       selectedPartId: null,
       selectedConnectionId: null,

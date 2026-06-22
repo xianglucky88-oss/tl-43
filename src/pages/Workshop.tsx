@@ -552,7 +552,7 @@ function getDefaultPreset(): { parts: FactoryPart[]; connections: Connection[] }
     {
       id: pistonId,
       type: "piston",
-      position: { x: 2.5, y: 0.8, z: 0.75 },
+      position: { x: 2.0, y: 0.5, z: 0.75 },
       rotation: { x: 0, y: 0, z: -Math.PI / 2 },
       scale: { x: 1, y: 1, z: 1 },
       config: { stroke: 0.6, cylinderRadius: 0.18 },
