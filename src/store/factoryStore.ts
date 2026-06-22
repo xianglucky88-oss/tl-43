@@ -242,10 +242,9 @@ function computeAlignment(
   const ny = dirY / len;
   const nz = dirZ / len;
 
-  const ry = -Math.atan2(nz, nx);
-  const horiz = Math.sqrt(nx * nx + nz * nz);
-  const rx = Math.atan2(ny, horiz);
-  const rz = 0;
+  const ry = -Math.asin(nz);
+  const rz = Math.atan2(ny, nx);
+  const rx = 0;
 
   const midX = (fromWorld.x + existingOtherPortWorld.x) / 2;
   const midY = (fromWorld.y + existingOtherPortWorld.y) / 2;
